@@ -111,7 +111,13 @@ class TraductorGUI(ctk.CTk):
 
         if resultado.exitoso:
             self.salida.insert("1.0", resultado.codigo)
-            self._mensaje("Traduccion correcta.")
+            if resultado.optimizaciones:
+                lineas = [f"Traduccion correcta. "
+                          f"{len(resultado.optimizaciones)} optimizacion(es) aplicada(s):"]
+                lineas += [f"  - {o}" for o in resultado.optimizaciones]
+                self._mensaje("\n".join(lineas))
+            else:
+                self._mensaje("Traduccion correcta.")
         else:
             lineas = ["Se encontraron errores:"]
             lineas += [f"  {e}" for e in resultado.errores]

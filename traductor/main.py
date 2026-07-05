@@ -6,7 +6,8 @@ Fases del pipeline:
     2. Sintactico    (ANTLR)
     3. Construccion de AST
     4. Semantico
-    5. Generacion de C#
+    5. Optimizacion  (plegado de constantes, codigo muerto, ...)
+    6. Generacion de C#
 
 Uso:
     python -m traductor.main entrada.java [-o salida.cs]
@@ -28,6 +29,7 @@ from JavaSubsetParser import JavaSubsetParser          # noqa: E402
 
 from traductor.ast_builder import ASTBuilder           # noqa: E402
 from traductor.semantico import AnalizadorSemantico    # noqa: E402
+from traductor.optimizador import Optimizador          # noqa: E402
 from traductor.generador_csharp import GeneradorCSharp # noqa: E402
 from traductor.infraestructura import Error            # noqa: E402
 
@@ -51,14 +53,20 @@ class TraduccionResult:
     codigo: Optional[str]
     errores: List[Error] = field(default_factory=list)
     simbolos: list = field(default_factory=list)
+    optimizaciones: List[str] = field(default_factory=list)
 
     @property
     def exitoso(self) -> bool:
         return self.codigo is not None and not self.errores
 
 
-def traducir_texto(fuente: str) -> TraduccionResult:
-    """Traduce codigo Java (texto) a C#. No lanza excepciones."""
+def traducir_texto(fuente: str, optimizar: bool = True) -> TraduccionResult:
+    """Traduce codigo Java (texto) a C#. No lanza excepciones.
+
+    Si `optimizar` es True se ejecuta la fase de optimizacion del AST antes de
+    generar C# (plegado de constantes, simplificacion algebraica/booleana y
+    eliminacion de codigo muerto).
+    """
     # --- 1. Lexico ---
     lexer = JavaSubsetLexer(InputStream(fuente))
     col_lex = _ColectorErrores("LEXICO")
@@ -89,10 +97,19 @@ def traducir_texto(fuente: str) -> TraduccionResult:
         return TraduccionResult(codigo=None, errores=resultado.errores,
                                 simbolos=resultado.simbolos)
 
-    # --- 5. Generacion C# ---
-    codigo = GeneradorCSharp().generar(resultado.ast_validado)
+    # --- 5. Optimizacion del AST ---
+    ast_final = resultado.ast_validado
+    optimizaciones: List[str] = []
+    if optimizar:
+        opt = Optimizador()
+        ast_final = opt.optimizar(ast_final)
+        optimizaciones = opt.cambios
+
+    # --- 6. Generacion C# ---
+    codigo = GeneradorCSharp().generar(ast_final)
     return TraduccionResult(codigo=codigo, errores=[],
-                            simbolos=resultado.simbolos)
+                            simbolos=resultado.simbolos,
+                            optimizaciones=optimizaciones)
 
 
 def traducir_archivo(ruta_entrada: str, ruta_salida: Optional[str] = None) -> TraduccionResult:
@@ -131,6 +148,10 @@ def main(argv: List[str]) -> int:
         return 1
 
     destino = salida or (os.path.splitext(entrada)[0] + ".cs")
+    if resultado.optimizaciones:
+        print(f"\nOptimizaciones aplicadas ({len(resultado.optimizaciones)}):")
+        for o in resultado.optimizaciones:
+            print(f"  - {o}")
     print(f"OK -> {destino}")
     return 0
 
